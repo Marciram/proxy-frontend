@@ -14,17 +14,33 @@ app.use(cors({
 
 app.use(express.json());
 
+// Add a simple health check endpoint
+app.get('/health', (req, res) => {
+  console.log('Health check requested');
+  res.status(200).send('Proxy server is running');
+});
+
 // Proxy endpoint for Ollama
 app.post('/api/chat', async (req, res) => {
+  console.log('Received request from frontend to /api/chat');
+  console.log('Request body:', JSON.stringify(req.body));
+  
   try {
+    const ollama_url = 'https://ollama-bb-bot-753741223620.us-central1.run.app/api/chat';
+    console.log(`Forwarding request to Ollama at: ${ollama_url}`);
+    
     // Forward request to Ollama service
-    const response = await fetch('https://ollama-bb-bot-753741223620.us-central1.run.app/api/chat', {
+    const response = await fetch(ollama_url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(req.body)
+      body: JSON.stringify(req.body),
+      // Add timeout to prevent hanging
+      timeout: 30000
     });
+    
+    console.log(`Ollama response status: ${response.status}`);
     
     if (!response.ok) {
       const errorText = await response.text();
@@ -32,11 +48,57 @@ app.post('/api/chat', async (req, res) => {
       return res.status(response.status).send(errorText);
     }
     
+    console.log('Successfully received response from Ollama');
     const data = await response.json();
+    console.log('Sending response back to frontend');
     res.json(data);
   } catch (error) {
     console.error('Error proxying to Ollama:', error);
-    res.status(500).json({ error: 'Failed to communicate with Ollama service' });
+    // More detailed error information
+    res.status(500).json({ 
+      error: 'Failed to communicate with Ollama service',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+// Add this to your proxy-server.js
+app.get('/test-ollama-connection', async (req, res) => {
+  try {
+    console.log('Testing direct connection to Ollama service...');
+    const response = await fetch('https://ollama-bb-bot-753741223620.us-central1.run.app/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'bb-bot',
+        messages: [{ role: 'user', content: 'test message' }]
+      }),
+      timeout: 5000
+    });
+    
+    const status = response.status;
+    console.log(`Test connection status: ${status}`);
+    
+    if (response.ok) {
+      res.status(200).json({ success: true, status, message: 'Connection to Ollama successful' });
+    } else {
+      const errorText = await response.text();
+      res.status(200).json({ 
+        success: false, 
+        status, 
+        message: 'Connection to Ollama failed', 
+        error: errorText 
+      });
+    }
+  } catch (error) {
+    console.error('Error testing Ollama connection:', error);
+    res.status(200).json({ 
+      success: false, 
+      message: 'Connection to Ollama failed with exception', 
+      error: error.message 
+    });
   }
 });
 
